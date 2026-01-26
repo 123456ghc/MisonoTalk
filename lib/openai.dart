@@ -75,6 +75,9 @@ Future<void> completion(Config config, List<List<String>> message,
               return;
             }
             if (delta["content"] != null) {
+              if(delta["content"].toString().trim().startsWith("错误:")){
+                throw Exception(delta["content"]);
+              }
               hasContent = true;
               if (isReasoning) {
                 isReasoning = false;
