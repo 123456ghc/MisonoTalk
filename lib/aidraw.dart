@@ -74,19 +74,94 @@ class AiDrawState extends State<AiDraw> with WidgetsBindingObserver{
       });
   }
 
+  // 新增：SD API 请求方法
+  Future<void> makeSDRequest(String baseUrl) async {
+    final dio = Dio();
+    
+    // 构建SD API请求参数
+    Map<String, dynamic> payload = {
+      'prompt': sdConfig.prompt.replaceAll("VERB", promptController.text),
+      'negative_prompt': sdConfig.negativePrompt,
+      'steps': sdConfig.steps ?? 30,
+      'width': sdConfig.width ?? 1024,
+      'height': sdConfig.height ?? 1600,
+      'cfg_scale': sdConfig.cfg ?? 7,
+      'sampler_name': sdConfig.sampler,
+    };
+    
+    try {
+      logController.text = '连接到SD服务...\n';
+      
+      // 调用SD的txt2img接口
+      final response = await dio.post(
+        '${baseUrl}sdapi/v1/txt2img',
+        data: payload,
+      );
+      
+      if (response.statusCode == 200) {
+        // SD API返回的是base64编码的图片
+        String base64Image = response.data['images'][0];
+        
+        setState(() {
+          // 将base64转为可显示的URL
+          imageUrl = 'data:image/png;base64,$base64Image';
+          sdBusy = false;
+          showLog = false;
+        });
+        
+        logController.text = '图片生成成功！\n$logController.text';
+        
+        if(!isForeground) {
+          notification.showNotification(
+            title: 'AiDraw',
+            body: 'Drawing completed',
+            showAvatar: false
+          );
+        }
+      } else {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      logController.text = '错误: $e\n$logController.text';
+      setState(() {
+        sdBusy = false;
+      });
+      snackBarAlert(context, "SD API错误: $e");
+    }
+  }
+
+  // 修改后的 makeRequest 函数（核心修改）
   Future<void> makeRequest() async {
     String url = apiController.text;
     if(url.isEmpty) {
       snackBarAlert(context, "Api url is empty!");
       return;
     }
+    
+    // 确保URL格式正确
+    if (!url.endsWith('/')) {
+      url += '/';
+    }
+    
     setState(() {
       sdBusy = true;
       showLog = true;
     });
-    if(!url.endsWith('/')) {
-      url += '/';
+    
+    // 简单的判断逻辑：
+    // 如果填的是原来的地址，就走Gradio
+    // 否则都走SD API
+    if (url.contains('r3gm-diffusecraft.hf.space')) {
+      // 使用原有的Gradio逻辑
+      await makeGradioRequest(url);
+    } else {
+      // 使用SD API（包括内网穿透、localhost、其他任何地址）
+      await makeSDRequest(url);
     }
+  }
+
+  // 原有的 Gradio 请求方法（完全保留，一字不改）
+  Future<void> makeGradioRequest(String url) async {
     final dio = Dio(BaseOptions(baseUrl: url));
     if(sessionHash==null || lastModel != sdConfig.model) {
       sessionHash = const Uuid().v4();
